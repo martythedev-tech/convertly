@@ -12,6 +12,7 @@ Convertly is a self-hosted web application for converting, combining, and packag
 - Markdown, HTML, and plain text publishing
 - JSON or CSV to ICS
 - ICS calendar merging
+- On-device comparison of two ICS calendars by event identity and properties
 - Preservation of embedded iCalendar events, recurring rules, exceptions, alarms, attendees, and timezone definitions
 - JSON or CSV contacts to a multi-contact VCF 3.0 address book
 - Normalized contact CSV export for contact-management imports
@@ -92,6 +93,12 @@ Basic JSON example:
 
 CSV columns: `title`, `start`, `end`, `description`, `location`, and `url`.
 
+## ICS comparison
+
+The ICS comparer accepts exactly two calendar files and treats the first as the baseline. Events are matched by `UID` plus `RECURRENCE-ID`, so recurring exceptions are compared independently from their parent series. The report identifies events that are only in the first calendar, only in the second calendar, changed, or unchanged. It also reports timezone-definition changes and provides downloadable CSV and JSON results.
+
+Generated metadata such as `DTSTAMP`, `CREATED`, and `LAST-MODIFIED`, line folding, and property order are normalized so they do not create misleading differences. Calendar comparison runs entirely in the browser.
+
 ## Contact conversion
 
 The Contact exporter accepts JSON or CSV data and creates either a multi-contact VCF 3.0 file or a normalized CSV. It recognizes common field variants for names, email addresses, phone numbers, organizations, job titles, postal addresses, birthdays, websites, notes, and contact IDs. Nested JSON contact collections are supported, and all processing stays in the browser.
@@ -114,9 +121,11 @@ Basic JSON example:
 
 - `src/main.js` — interface and conversion orchestration
 - `src/calendar.js` — calendar detection and iCalendar preservation
+- `src/ics-compare.js` — structured ICS event and timezone comparison
 - `src/contacts.js` — contact detection, normalization, VCF generation, and contact CSV export
 - `src/style.css` — responsive styling
 - `test/calendar.test.js` — calendar regression tests
+- `test/ics-compare.test.js` — ICS comparison regression tests
 - `test/contacts.test.js` — contact conversion regression tests
 - `server/index.js` — Office and OCR endpoints
 - `server/Dockerfile` — LibreOffice and OCR runtime
