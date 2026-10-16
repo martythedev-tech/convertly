@@ -36,6 +36,28 @@ npm run build
 
 ## Docker deployment
 
+### Prebuilt release images
+
+Versioned multi-platform images are published to GitHub Container Registry for AMD64 and ARM64:
+
+- `ghcr.io/martythedev-tech/convertly-web`
+- `ghcr.io/martythedev-tech/convertly-api`
+
+Because the packages are private, first authenticate to GHCR with a GitHub token that has `read:packages` permission. Do not store the token in this repository.
+
+```sh
+docker login ghcr.io
+cp .env.example .env
+docker compose pull
+docker compose up -d
+```
+
+Set `CONVERTLY_VERSION` in `.env` to a release such as `0.1.0` instead of `latest` for repeatable deployments. For the strongest pinning, replace the image tags in `docker-compose.yml` with the published SHA-256 digests.
+
+Release images include BuildKit provenance and SBOM attestations. Image tags include the semantic version, major/minor version, commit SHA, and `latest`.
+
+### Build from source
+
 Docker Compose builds both the frontend and conversion API. The web application defaults to port `8080`; set `CONVERTLY_PORT` to use another host port.
 
 ```sh
@@ -80,5 +102,7 @@ CSV columns: `title`, `start`, `end`, `description`, `location`, and `url`.
 - `server/index.js` — Office and OCR endpoints
 - `server/Dockerfile` — LibreOffice and OCR runtime
 - `deploy/nginx.conf` — frontend server and API proxy
-- `docker-compose.dev.yml` — container configuration
+- `docker-compose.yml` — deployment using published images
+- `docker-compose.dev.yml` — deployment built from source
+- `.github/workflows/publish-images.yml` — tested multi-platform release publishing
 
