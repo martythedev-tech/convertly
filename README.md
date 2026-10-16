@@ -38,15 +38,12 @@ npm run build
 
 ### Prebuilt release images
 
-Versioned multi-platform images are published to GitHub Container Registry for AMD64 and ARM64:
+Public, versioned multi-platform images are published to GitHub Container Registry for AMD64 and ARM64:
 
 - `ghcr.io/martythedev-tech/convertly-web`
 - `ghcr.io/martythedev-tech/convertly-api`
 
-Because the packages are private, first authenticate to GHCR with a GitHub token that has `read:packages` permission. Do not store the token in this repository.
-
 ```sh
-docker login ghcr.io
 cp .env.example .env
 docker compose pull
 docker compose up -d
@@ -105,4 +102,8 @@ CSV columns: `title`, `start`, `end`, `description`, `location`, and `url`.
 - `docker-compose.yml` — deployment using published images
 - `docker-compose.dev.yml` — deployment built from source
 - `.github/workflows/publish-images.yml` — tested multi-platform release publishing
+
+## License
+
+Convertly is available under the [MIT License](LICENSE).
 
