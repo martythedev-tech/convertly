@@ -13,6 +13,8 @@ Convertly is a self-hosted web application for converting, combining, and packag
 - JSON or CSV to ICS
 - ICS calendar merging
 - Preservation of embedded iCalendar events, recurring rules, exceptions, alarms, attendees, and timezone definitions
+- JSON or CSV contacts to a multi-contact VCF 3.0 address book
+- Normalized contact CSV export for contact-management imports
 - OCR to searchable PDF or plain text
 - Browser-side ZIP creation
 
@@ -90,12 +92,32 @@ Basic JSON example:
 
 CSV columns: `title`, `start`, `end`, `description`, `location`, and `url`.
 
+## Contact conversion
+
+The Contact exporter accepts JSON or CSV data and creates either a multi-contact VCF 3.0 file or a normalized CSV. It recognizes common field variants for names, email addresses, phone numbers, organizations, job titles, postal addresses, birthdays, websites, notes, and contact IDs. Nested JSON contact collections are supported, and all processing stays in the browser.
+
+Basic JSON example:
+
+```json
+[
+  {
+    "first_name": "Ada",
+    "last_name": "Lovelace",
+    "email": "ada@example.com",
+    "phone": "+1 555 0100",
+    "company": "Analytical Engines"
+  }
+]
+```
+
 ## Project structure
 
 - `src/main.js` — interface and conversion orchestration
 - `src/calendar.js` — calendar detection and iCalendar preservation
+- `src/contacts.js` — contact detection, normalization, VCF generation, and contact CSV export
 - `src/style.css` — responsive styling
 - `test/calendar.test.js` — calendar regression tests
+- `test/contacts.test.js` — contact conversion regression tests
 - `server/index.js` — Office and OCR endpoints
 - `server/Dockerfile` — LibreOffice and OCR runtime
 - `deploy/nginx.conf` — frontend server and API proxy
