@@ -1,0 +1,8 @@
+node_modules
+dist
+.git
+.openai
+npm-debug.log
+*.tar.gz
+server/node_modules
+PROJECT_NOTES.md
