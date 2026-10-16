@@ -51,8 +51,9 @@ test('exports only differences to CSV', () => {
   const before = calendar([event(['UID:one@example.test', 'SUMMARY:Before', 'DTSTART:20261020T140000Z'])]);
   const after = calendar([event(['UID:one@example.test', 'SUMMARY:After', 'DTSTART:20261020T140000Z'])]);
   const csv = comparisonToCsv(compareIcs(before, after));
-  assert.match(csv, /status,uid,recurrence_id/);
-  assert.match(csv, /changed,one@example\.test/);
+  assert.match(csv, /record_type,status,uid,recurrence_id/);
+  assert.match(csv, /exact_identity,changed,one@example\.test/);
+  assert.match(csv, /uid_only,probable_uid_match,one@example\.test/);
   assert.doesNotMatch(csv, /unchanged/);
 });
 
@@ -62,4 +63,39 @@ test('reports alarm changes inside an otherwise matching event', () => {
   const report = compareIcs(before, after);
   assert.equal(report.summary.changed, 1);
   assert.deepEqual(report.events[0].changes.map(change => change.property), ['VALARM']);
+});
+
+test('warns about suspicious recurrence IDs reused across unrelated UIDs', () => {
+  const recurrenceIds = ['20260101T140000Z', '20260108T140000Z'];
+  const corruptedEvents = Array.from({ length: 12 }, (_, index) => recurrenceIds.map(recurrenceId => event([
+    `UID:event-${index}@example.test`,
+    `RECURRENCE-ID:${recurrenceId}`,
+    `SUMMARY:Event ${index}`,
+    `DTSTART:202610${String(index + 1).padStart(2, '0')}T140000Z`,
+  ]))).flat();
+  const normal = calendar([event(['UID:event-0@example.test', 'SUMMARY:Event 0', 'DTSTART:20261001T140000Z'])]);
+  const report = compareIcs(calendar(corruptedEvents), normal);
+  assert.equal(report.diagnostics.fileA.eventCount, 24);
+  assert.equal(report.diagnostics.fileA.uniqueUids, 12);
+  assert.equal(report.diagnostics.fileA.uniqueRecurrenceIds, 2);
+  assert.equal(report.diagnostics.fileA.maxUidsSharingRecurrenceId, 12);
+  assert.equal(report.diagnostics.fileA.warnings.length, 3);
+});
+
+test('provides a UID-only probable-match analysis when recurrence identities differ', () => {
+  const before = calendar([
+    event(['UID:shared@example.test', 'RECURRENCE-ID:20261001T140000Z', 'SUMMARY:Same title', 'DTSTART:20261020T140000Z']),
+    event(['UID:only-a@example.test', 'SUMMARY:Only A', 'DTSTART:20261021T140000Z']),
+  ]);
+  const after = calendar([
+    event(['UID:shared@example.test', 'SUMMARY:Same title', 'DTSTART:20261020T140000Z']),
+    event(['UID:only-b@example.test', 'SUMMARY:Only B', 'DTSTART:20261022T140000Z']),
+  ]);
+  const probable = compareIcs(before, after).probableMatches;
+  assert.equal(probable.sharedUids, 1);
+  assert.equal(probable.sharedUidsWithMatchingTitle, 1);
+  assert.equal(probable.onlyInA, 1);
+  assert.equal(probable.onlyInB, 1);
+  assert.equal(probable.details[0].eventCountA, 1);
+  assert.equal(probable.details[0].eventCountB, 1);
 });

@@ -52,7 +52,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Set `CONVERTLY_VERSION` in `.env` to a release such as `0.1.0` instead of `latest` for repeatable deployments. For the strongest pinning, replace the image tags in `docker-compose.yml` with the published SHA-256 digests.
+Set `CONVERTLY_VERSION` in `.env` to a numbered release instead of `latest` for repeatable deployments. For the strongest pinning, replace the image tags in `docker-compose.yml` with the published SHA-256 digests.
 
 Release images include BuildKit provenance and SBOM attestations. Image tags include the semantic version, major/minor version, commit SHA, and `latest`.
 
@@ -95,7 +95,9 @@ CSV columns: `title`, `start`, `end`, `description`, `location`, and `url`.
 
 ## ICS comparison
 
-The ICS comparer accepts exactly two calendar files and treats the first as the baseline. Events are matched by `UID` plus `RECURRENCE-ID`, so recurring exceptions are compared independently from their parent series. The report identifies events that are only in the first calendar, only in the second calendar, changed, or unchanged. It also reports timezone-definition changes and provides downloadable CSV and JSON results.
+The ICS comparer accepts exactly two calendar files and treats the first as the baseline. Events are matched by `UID` plus `RECURRENCE-ID`, so recurring exceptions are compared independently from their parent series. The report identifies events that are only in the first calendar, only in the second calendar, changed, or unchanged. Separate category tabs keep large result sets navigable.
+
+When a calendar has suspicious recurrence structures, the comparer displays a warning and provides a secondary UID-only probable-match analysis. This helps identify logically related records without misrepresenting them as exact calendar matches. Timezone-definition changes and complete downloadable CSV and JSON results are also included.
 
 Generated metadata such as `DTSTAMP`, `CREATED`, and `LAST-MODIFIED`, line folding, and property order are normalized so they do not create misleading differences. Calendar comparison runs entirely in the browser.
 

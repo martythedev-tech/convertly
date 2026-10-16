@@ -116,6 +116,93 @@ function indexEvents(events) {
   return groups;
 }
 
+function indexEventsByUid(events) {
+  const groups = new Map();
+  for (const event of events) {
+    const uid = firstPropertyValue(event, 'UID');
+    if (!uid) continue;
+    if (!groups.has(uid)) groups.set(uid, []);
+    groups.get(uid).push(event);
+  }
+  return groups;
+}
+
+function calendarDiagnostics(events) {
+  const uidGroups = indexEventsByUid(events);
+  const recurrenceEvents = events.filter(event => firstPropertyValue(event, 'RECURRENCE-ID'));
+  const masterEvents = events.filter(event => !firstPropertyValue(event, 'RECURRENCE-ID'));
+  const recurrenceRules = events.filter(event => firstPropertyValue(event, 'RRULE'));
+  const recurrenceUsage = new Map();
+  for (const event of recurrenceEvents) {
+    const recurrenceId = firstPropertyValue(event, 'RECURRENCE-ID');
+    const uid = firstPropertyValue(event, 'UID');
+    if (!recurrenceUsage.has(recurrenceId)) recurrenceUsage.set(recurrenceId, new Set());
+    if (uid) recurrenceUsage.get(recurrenceId).add(uid);
+  }
+  const repeatedAcrossUids = [...recurrenceUsage.entries()]
+    .map(([recurrenceId, uids]) => ({ recurrenceId, uidCount: uids.size }))
+    .filter(item => item.uidCount > 1)
+    .sort((left, right) => right.uidCount - left.uidCount);
+  const groupsWithoutMaster = [...uidGroups.values()].filter(group => group.every(event => firstPropertyValue(event, 'RECURRENCE-ID'))).length;
+  const duplicateEvents = [...uidGroups.values()].reduce((total, group) => total + Math.max(0, group.length - 1), 0);
+  const warnings = [];
+  if (events.length && recurrenceEvents.length === events.length && masterEvents.length === 0) {
+    warnings.push('Every event has a RECURRENCE-ID, but the file has no master event without one. This is unusual and may indicate damaged recurrence data.');
+  }
+  if (repeatedAcrossUids[0]?.uidCount >= Math.max(10, Math.ceil(uidGroups.size * 0.1))) {
+    warnings.push(`The same recurrence ID is reused across as many as ${repeatedAcrossUids[0].uidCount} unrelated UIDs. Exact event matching may overstate differences.`);
+  }
+  if (uidGroups.size && duplicateEvents >= uidGroups.size) {
+    warnings.push(`${events.length} event components collapse to ${uidGroups.size} unique UIDs. Review the UID-only probable matches alongside the exact comparison.`);
+  }
+  return {
+    eventCount: events.length,
+    uniqueUids: uidGroups.size,
+    missingUid: events.filter(event => !firstPropertyValue(event, 'UID')).length,
+    eventsWithRecurrenceId: recurrenceEvents.length,
+    uniqueRecurrenceIds: recurrenceUsage.size,
+    eventsWithRrule: recurrenceRules.length,
+    masterEvents: masterEvents.length,
+    uidGroupsWithoutMaster: groupsWithoutMaster,
+    duplicateEvents,
+    maxUidsSharingRecurrenceId: repeatedAcrossUids[0]?.uidCount || 0,
+    warnings,
+  };
+}
+
+function probableUidMatches(eventsA, eventsB) {
+  const groupsA = indexEventsByUid(eventsA);
+  const groupsB = indexEventsByUid(eventsB);
+  const sharedUids = [...groupsA.keys()].filter(uid => groupsB.has(uid));
+  const details = sharedUids.map(uid => {
+    const left = groupsA.get(uid);
+    const right = groupsB.get(uid);
+    const summariesA = [...new Set(left.map(eventLabel))];
+    const summariesB = [...new Set(right.map(eventLabel))];
+    const matchingTitles = summariesA.filter(summary => summariesB.includes(summary));
+    return {
+      uid,
+      eventCountA: left.length,
+      eventCountB: right.length,
+      summariesA,
+      summariesB,
+      startsA: [...new Set(left.map(eventStart))],
+      startsB: [...new Set(right.map(eventStart))],
+      summaryMatch: matchingTitles.length > 0,
+      matchingTitles,
+    };
+  }).sort((left, right) => Number(right.summaryMatch) - Number(left.summaryMatch) || (left.summariesB[0] || left.summariesA[0] || '').localeCompare(right.summariesB[0] || right.summariesA[0] || ''));
+  return {
+    uniqueUidsA: groupsA.size,
+    uniqueUidsB: groupsB.size,
+    sharedUids: sharedUids.length,
+    onlyInA: [...groupsA.keys()].filter(uid => !groupsB.has(uid)).length,
+    onlyInB: [...groupsB.keys()].filter(uid => !groupsA.has(uid)).length,
+    sharedUidsWithMatchingTitle: details.filter(detail => detail.summaryMatch).length,
+    details,
+  };
+}
+
 function propertyMap(event) {
   const map = new Map();
   for (const property of event.properties) {
@@ -249,6 +336,8 @@ export function compareIcs(leftText, rightText, names = {}) {
     componentCounts: { fileA: countsFor(allA), fileB: countsFor(allB) },
     timezones: compareNamedComponents(allA, allB, 'VTIMEZONE', 'TZID'),
     warnings: { fileA: parsedA.warnings, fileB: parsedB.warnings },
+    diagnostics: { fileA: calendarDiagnostics(eventsA), fileB: calendarDiagnostics(eventsB) },
+    probableMatches: probableUidMatches(eventsA, eventsB),
     ignoredProperties: [...IGNORED_EVENT_PROPERTIES],
     events,
   };
@@ -260,9 +349,10 @@ function csvCell(value) {
 }
 
 export function comparisonToCsv(report) {
-  const rows = [['status', 'uid', 'recurrence_id', 'summary_before', 'summary_after', 'start_before', 'start_after', 'changed_properties']];
+  const rows = [['record_type', 'status', 'uid', 'recurrence_id', 'summary_before', 'summary_after', 'start_before', 'start_after', 'changed_properties', 'event_count_a', 'event_count_b']];
   for (const event of report.events.filter(item => item.status !== 'unchanged')) {
     rows.push([
+      'exact_identity',
       event.status,
       event.uid,
       event.recurrenceId,
@@ -271,6 +361,23 @@ export function comparisonToCsv(report) {
       event.beforeStart,
       event.afterStart,
       event.changes.map(change => change.property).join('; '),
+      '',
+      '',
+    ]);
+  }
+  for (const match of report.probableMatches.details) {
+    rows.push([
+      'uid_only',
+      match.summaryMatch ? 'probable_title_match' : 'probable_uid_match',
+      match.uid,
+      '',
+      match.summariesA.join(' | '),
+      match.summariesB.join(' | '),
+      match.startsA.join(' | '),
+      match.startsB.join(' | '),
+      '',
+      match.eventCountA,
+      match.eventCountB,
     ]);
   }
   return rows.map(row => row.map(csvCell).join(',')).join('\r\n');
