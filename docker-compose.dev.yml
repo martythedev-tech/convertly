@@ -18,6 +18,8 @@ services:
       context: ./server
       dockerfile: Dockerfile
     image: convertly-api:dev
+    # Reaps converter processes stopped by a cancel or timeout; Node as PID 1 does not.
+    init: true
     container_name: convertly-api
     restart: unless-stopped
     expose:

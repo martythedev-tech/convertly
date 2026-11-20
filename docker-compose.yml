@@ -13,6 +13,8 @@ services:
 
   api:
     image: ghcr.io/martythedev-tech/convertly-api:${CONVERTLY_VERSION:-latest}
+    # Reaps converter processes stopped by a cancel or timeout; Node as PID 1 does not.
+    init: true
     restart: unless-stopped
     pull_policy: always
     expose:
