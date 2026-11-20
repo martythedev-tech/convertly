@@ -1,15 +1,13 @@
 import express from 'express';
 import multer from 'multer';
 import archiver from 'archiver';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { run } from './run.js';
 
-const exec = promisify(execFile);
 const app = express();
 const uploadRoot = path.join(os.tmpdir(), 'convertly-uploads');
 await mkdir(uploadRoot, { recursive: true });
@@ -34,8 +32,9 @@ app.post('/api/office-to-pdf', uploader.array('files', 20), async (req, res) => 
   const outDir = path.join(job, 'out');
   const profileDir = path.join(job, 'profile');
   await mkdir(outDir); await mkdir(profileDir);
+  const signal = cancelOnDisconnect(res);
   try {
-    await exec('libreoffice', [`-env:UserInstallation=file://${profileDir}`, '--headless', '--nologo', '--nodefault', '--nofirststartwizard', '--convert-to', 'pdf', '--outdir', outDir, ...files.map(file => file.path)], { timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
+    await run('libreoffice', [`-env:UserInstallation=file://${profileDir}`, '--headless', '--nologo', '--nodefault', '--nofirststartwizard', '--convert-to', 'pdf', '--outdir', outDir, ...files.map(file => file.path)], { timeout: 240000, signal });
     const outputs = (await readdir(outDir)).filter(name => name.toLowerCase().endsWith('.pdf'));
     if (!outputs.length) throw new Error('LibreOffice did not produce a PDF from that document.');
     if (outputs.length === 1) return sendAndClean(res, path.join(outDir, outputs[0]), safeBase(files[0].originalname) + '.pdf', files, job);
@@ -44,6 +43,7 @@ app.post('/api/office-to-pdf', uploader.array('files', 20), async (req, res) => 
     return sendAndClean(res, zipPath, 'converted-office-files.zip', files, job);
   } catch (error) {
     await cleanup(files, job);
+    if (signal.aborted) return console.log('office conversion cancelled by the client');
     console.error('office conversion failed', error.message);
     return res.status(422).json({ error: 'That Office document could not be converted. It may be damaged, encrypted, or use unsupported features.' });
   }
@@ -56,27 +56,29 @@ app.post('/api/ocr', uploader.single('file'), async (req, res) => {
   if (!allowedOcr.has(ext)) return cleanupResponse(res, [file], 415, 'That scan format is not supported.');
   const job = await mkdtemp(path.join(os.tmpdir(), 'convertly-ocr-'));
   const outputType = req.body.output === 'txt' ? 'txt' : 'pdf';
+  const signal = cancelOnDisconnect(res);
   try {
     if (ext === '.pdf') {
       const searchable = path.join(job, 'searchable.pdf');
-      await exec('ocrmypdf', ['--skip-text', '--deskew', '--rotate-pages', '--optimize', '1', file.path, searchable], { timeout: 300000, maxBuffer: 4 * 1024 * 1024 });
+      await run('ocrmypdf', ['--skip-text', '--deskew', '--rotate-pages', '--optimize', '1', file.path, searchable], { timeout: 300000, signal });
       if (outputType === 'pdf') return sendAndClean(res, searchable, `${safeBase(file.originalname)}-searchable.pdf`, [file], job);
       const textPath = path.join(job, 'text.txt');
-      await exec('pdftotext', [searchable, textPath], { timeout: 120000 });
+      await run('pdftotext', [searchable, textPath], { timeout: 120000, signal });
       return sendAndClean(res, textPath, `${safeBase(file.originalname)}.txt`, [file], job);
     }
     if (outputType === 'txt') {
-      const { stdout } = await exec('tesseract', [file.path, 'stdout'], { timeout: 240000, maxBuffer: 20 * 1024 * 1024 });
+      const { stdout } = await run('tesseract', [file.path, 'stdout'], { timeout: 240000, signal, maxBuffer: 20 * 1024 * 1024 });
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${safeBase(file.originalname)}.txt"`);
       res.send(stdout);
       return cleanup([file], job);
     }
     const base = path.join(job, 'scan');
-    await exec('tesseract', [file.path, base, 'pdf'], { timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
+    await run('tesseract', [file.path, base, 'pdf'], { timeout: 240000, signal });
     return sendAndClean(res, `${base}.pdf`, `${safeBase(file.originalname)}-searchable.pdf`, [file], job);
   } catch (error) {
     await cleanup([file], job);
+    if (signal.aborted) return console.log('ocr cancelled by the client');
     console.error('ocr failed', error.message);
     return res.status(422).json({ error: 'OCR could not read that file. Try a clearer scan or a smaller document.' });
   }
@@ -88,6 +90,14 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: 'The conversion service encountered an unexpected error.' });
 });
 
+// Stops a running conversion when the browser cancels the request or goes
+// away before the response has been sent, so abandoned jobs don't keep
+// LibreOffice or OCR busy for minutes.
+function cancelOnDisconnect(res) {
+  const controller = new AbortController();
+  res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+  return controller.signal;
+}
 function safeBase(name) { return path.basename(name, path.extname(name)).replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 100) || 'converted'; }
 async function sendAndClean(res, filePath, name, uploads, job) { res.download(filePath, name, async () => cleanup(uploads, job)); }
 async function cleanup(uploads = [], job) { await Promise.allSettled(uploads.map(file => rm(file.path, { force: true }))); if (job) await rm(job, { recursive: true, force: true }); }

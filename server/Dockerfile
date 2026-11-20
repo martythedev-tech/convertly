@@ -9,7 +9,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
-COPY index.js ./
+COPY index.js run.js ./
 
 ENV NODE_ENV=production
 EXPOSE 3000
